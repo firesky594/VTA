@@ -2,3 +2,13 @@
 VTA（Visual,Think,Action） system
 一款根据屏幕输入，通过各类大模型思考，做出对应动作的系统设想。
 不需要依赖其他的软件，单独悬浮窗口，可通过对窗口添加任务，来进行指导。
+
+
+插件格式
+```
+import somethings
+IS_WORKER = True
+def worker_run(vision_queue, think_queue, action_queue, shared):
+    do something
+    shared['display_frame'] = processed_frame 
+```
