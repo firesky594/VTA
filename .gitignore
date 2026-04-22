@@ -130,6 +130,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv/
 env/
 venv/
 ENV/
@@ -173,4 +174,3 @@ cython_debug/
 .model/
 .models/
 .env.py
-.env
