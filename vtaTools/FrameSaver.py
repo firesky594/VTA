@@ -6,7 +6,7 @@ from vtaTools.ColorLog import log_info, log_success
 
 
 class FrameSaver:
-    def __init__(self, base_path):
+    def __init__(self, base_path='/tmp/frames'):
         self.base_path = base_path
         self.max_daily_frames = 100
         self.last_save_time = 0

@@ -8,6 +8,7 @@ class CURRENT_STATUS(Enum):
 
 
 SHARED_DATA_TEMPLATE = {
+    'shutdown': False,
     # 显示的帧
     'display_frame': None,
     'processed_frame': None,
