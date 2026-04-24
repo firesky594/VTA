@@ -3,11 +3,10 @@ import cv2
 import time
 from datetime import datetime
 from vtaTools.ColorLog import log_info, log_success
-import config
 
 
 class FrameSaver:
-    def __init__(self, base_path=config.YOLO_TRAIN_TMP_DATA_PATH):
+    def __init__(self, base_path):
         self.base_path = base_path
         self.max_daily_frames = 100
         self.last_save_time = 0
