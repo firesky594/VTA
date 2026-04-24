@@ -171,6 +171,9 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-.model/
-.models/
+model/
+models/
 .env.py
+yoloTrainTools
+config.py
+resources

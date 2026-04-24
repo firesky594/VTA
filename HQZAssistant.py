@@ -1,3 +1,6 @@
+import queue
+import traceback
+from vtaTools.FrameSaver import FrameSaver
 import cv2
 import time
 import multiprocessing as mp
@@ -29,19 +32,19 @@ class HQZAssistant:
         self.manager = mp.Manager()
         self.shared_data = self.manager.dict()
         self.shared_data.update(SHARED_DATA_TEMPLATE)
-        self.vision_queue = mp.Queue(maxsize=1)
-        self.think_queue = mp.Queue(maxsize=1)
-        self.action_queue = mp.Queue(maxsize=1)
+        self.vision_queue = mp.Queue(maxsize=10)
+        self.think_queue = mp.Queue(maxsize=5)
+        self.action_queue = mp.Queue(maxsize=5)
         self.processes = {}
         # 2. 【核心配置】指定扫描的文件夹
         self.TOOL_PKGS = ["visionTools", "actionTools", "thinkTools"]
         # 4. 【自动注册】扫描并启动所有 Worker
-        self.discover_and_start_workers()
+        self.discover_and_start_workers(tools_pkgs=self.TOOL_PKGS)
 
-    def discover_and_start_workers(self):
+    def discover_and_start_workers(self, tools_pkgs=None):
         """ 扫描指定目录，寻找 IS_WORKER 标记的模块并启动 """
         log_info("HQZ", "正在自动扫描 Worker 模块...")
-        for pkg in self.TOOL_PKGS:
+        for pkg in tools_pkgs or self.TOOL_PKGS:
             pkg_path = os.path.join(BASE_DIR, pkg)
             if not os.path.exists(pkg_path):
                 continue
@@ -61,6 +64,7 @@ class HQZAssistant:
                                 mod_name.lower(), target_func, (self.vision_queue, self.think_queue, self.action_queue, self.shared_data))
 
     def restart_process(self, name, target_func, args):
+        log_info("HQZ", f"关闭旧进程 {name}...")
         """ 进程管理核心：安全杀掉旧的，启动新的 """
         if name in self.processes:
             p_old = self.processes[name]
@@ -68,6 +72,7 @@ class HQZAssistant:
                 p_old.terminate()
                 p_old.join(timeout=1)
 
+        log_info("HQZ", f"启动新进程 {name}...")
         try:
             p = mp.Process(target=target_func, args=args, name=name)
             p.daemon = True
@@ -84,7 +89,6 @@ class HQZAssistant:
         parts = abs_path.split(os.sep)
         pkg = parts[-2]
         mod_name = parts[-1].replace(".py", "")
-
         # 2. 构造与启动时一致的完整模块名
         full_mod_name = f"{pkg}.{mod_name}"
         # 3. 动态加载模块
@@ -95,62 +99,100 @@ class HQZAssistant:
                 target_func = getattr(mod, "worker_run", None)
                 if target_func:
                     # 进程名使用 mod_name.lower()，与启动逻辑保持一致
-                    self.restart_process(
-                        mod_name.lower(), target_func, (self.vision_queue, self.think_queue, self.action_queue, self.shared_data))
+                    self.restart_process(mod_name.lower(), target_func, (self.vision_queue, self.think_queue, self.action_queue, self.shared_data))
                     log_success("HQZ", f"检测到 Worker 变更，进程 {mod_name} 已重启")
             else:
-                log_success("HQZ", f"模块 {full_mod_name} 热重载成功")
+                log_success("HQZ", f"子模块 {full_mod_name} 热重载")
+                # ✅ 判断是否在 src 目录
+                if os.sep + "src" + os.sep in abs_path:
+                    parent_pkg = parts[-3]   # visionTools / actionTools / thinkTools
+                    log_info("HQZ", f"检测到 src 变更，准备重启 {parent_pkg} 下所有 Worker")
+                    self._restart_related_workers(parent_pkg)
+
+    def _restart_related_workers(self, src_pkg_name):
+        log_info("HQZ", f"正在重启与 {src_pkg_name} 相关的 Worker...")
+        self.discover_and_start_workers(tools_pkgs=[src_pkg_name])
+
+    def draw_grid(self, frame, step=50, color=(200, 200, 200), show_text=True):
+        """
+        在图像上绘制网格和坐标
+        :param frame: 原始图像
+        :param step: 网格间距，默认100像素
+        :param color: 线条颜色 (B, G, R)
+        :param show_text: 是否显示坐标刻度数字
+        :return: 带有网格的副本图像
+        """
+        if frame is None:
+            return None
+
+        # 拷贝一份防止修改原图
+        canvas = frame.copy()
+        h, w = canvas.shape[:2]
+
+        # 绘制垂直线
+        for x in range(0, w, step):
+            cv2.line(canvas, (x, 0), (x, h), color, 1)
+            if show_text:
+                cv2.putText(canvas, str(x), (x + 5, 15),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+
+        # 绘制水平线
+        for y in range(0, h, step):
+            cv2.line(canvas, (0, y), (w, y), color, 1)
+            if show_text:
+                cv2.putText(canvas, str(y), (5, y + 15),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+
+        return canvas
 
     def run(self):
+        frame_saver = FrameSaver()  # 初始化 FrameSaver，确保目录准备就绪
         log_success("HQZ", "主循环启动：负责接收视觉数据、思考并执行动作整套流程")
-        while True:
-            try:
+        try:
+            while self.shared_data["shutdown"] is False:
                 if not self.vision_queue.empty():
-                    frame = self.vision_queue.get_nowait()
 
-                    cv2.imshow("HQZ Display", frame)
-
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == ord('q'):
-                        break
+                    try:
+                        frame = self.vision_queue.get(timeout=0.1)  # 队列空会抛 queue.Empty
+                    except queue.Empty:
+                        pass
+                    frame = self.draw_grid(frame)
+                    if frame is not None and frame.size > 0:
+                        cv2.imshow("HQZ Display", frame)
+                        key = cv2.waitKey(1) & 0xFF
+                        if key == ord('q'):
+                            break
+                        elif key == ord('f'):
+                            log_info("GA", "用户按下 [F]，触发 手动分割识别")
+                            frame_saver.auto_save(frame, reason="手动截图分析")
+                    else:
+                        log_error("HQZ", "收到无效帧，跳过显示")
+                        time.sleep(10)  # 等待一小会儿，避免过度占用 CPU
 
                 time.sleep(0.01)  # 避免 CPU 占用过高
-            except Exception as e:
-                log_error("HQZ", f"主循环异常: {e}")
+        except Exception as e:
+            log_error("HQZ", f"主循环异常: {repr(e)}")
+            traceback.print_exc()
+            cv2.destroyAllWindows()
 
     def shutdown(self):
-        """ 强效递归清理并强制退出 """
-        log_info("HQZ", "正在全量关闭系统...")
-
-        # 1. 停止采集驱动
-        if hasattr(self, "cap"):
+        log_info("HQZ", "开始优雅关闭...")
+        # 1️⃣ 通知所有 worker 自己退出
+        self.shared_data["shutdown"] = True
+        self.manager.shutdown()
+        for q in [self.vision_queue, self.think_queue, self.action_queue]:
             try:
-                if hasattr(self.cap, "stop"):
-                    self.cap.stop()
+                q.close()
+                q.join_thread()
             except:
                 pass
-
-        # 2. 递归杀死所有子进程 (YoloWorker, SAM2 等)
-        try:
-            current_process = psutil.Process(os.getpid())
-            children = current_process.children(recursive=True)
-            for child in children:
-                log_info("System", f"正在结束子进程: {child.pid}")
-                child.terminate()  # 先温和请求
-
-            # 等待一小会儿让子进程自行清理
-            gone, alive = psutil.wait_procs(children, timeout=1)
-
-            # 如果还有没挂的，直接强杀
-            for p in alive:
-                p.kill()
-        except Exception as e:
-            print(f"清理进程树时出错: {e}")
-
-        # 3. 释放 OpenCV 窗口
-        cv2.destroyAllWindows()
-
-        # 4. 强制终结主进程
-        log_success("System", "所有进程已清理，主程序退出。")
-        # 使用 os._exit 绕过所有 try/finally 和析构函数，直接杀掉
-        os._exit(0)
+        # 2️⃣ 等待所有 worker 进程退出
+        for name, proc in self.processes.items():
+            log_info("HQZ", f"等待 Worker [{name}] 退出...")
+            proc.join(timeout=5)
+            if proc.is_alive():
+                log_error("HQZ", f"Worker [{name}] 未能及时退出，强制终止")
+                proc.terminate()
+                proc.join(timeout=1)
+                log_info("HQZ", f"Worker [{name}] 已强制终止")
+        log_info("HQZ", "所有 Worker 已成功关闭")
