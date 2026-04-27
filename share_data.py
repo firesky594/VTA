@@ -8,7 +8,11 @@ class CURRENT_STATUS(Enum):
 
 
 SHARED_DATA_TEMPLATE = {
+    'audio_text_list': [],
     'shutdown': False,
+    'ocr_frame': None,
+    'ocr_last_time': 0,
+    'ocr_interval': 1,
     # 显示的帧
     'display_frame': None,
     'processed_frame': None,

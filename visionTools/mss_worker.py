@@ -128,6 +128,7 @@ def worker_run(vision_queue, think_queue, action_queue, shared):
                     pass
 
             vision_queue.put_nowait(frame)
+            shared['ocr_frame'] = frame
 
         except Exception as e:
             log_error("MSSWorker", str(e))
