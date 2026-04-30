@@ -33,8 +33,8 @@ class ReloadHandler(PatternMatchingEventHandler):
         self.callback = assistant.hot_reload_module
         self.last_mtime = {}
 
-    def on_any_event(self, event):
-        log_info("Main", f"{time.strftime('%Y-%m-%d %H:%M:%S')} 文件更新: {event.src_path}")
+    # def on_any_event(self, event):
+    #     log_info("Main", f"{time.strftime('%Y-%m-%d %H:%M:%S')} 文件更新: {event.src_path}")
 
     def on_modified(self, event):
         path = os.path.abspath(event.src_path)

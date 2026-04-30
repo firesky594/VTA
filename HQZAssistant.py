@@ -32,9 +32,9 @@ class HQZAssistant:
         self.manager = mp.Manager()
         self.shared_data = self.manager.dict()
         self.shared_data.update(SHARED_DATA_TEMPLATE)
-        self.vision_queue = mp.Queue(maxsize=10)
-        self.think_queue = mp.Queue(maxsize=5)
-        self.action_queue = mp.Queue(maxsize=5)
+        self.vision_queue = self.manager.Queue(maxsize=10)
+        self.think_queue = self.manager.Queue(maxsize=5)
+        self.action_queue = self.manager.Queue(maxsize=5)
         self.processes = {}
         # 2. 【核心配置】指定扫描的文件夹
         self.TOOL_PKGS = ["visionTools", "actionTools", "thinkTools"]

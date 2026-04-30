@@ -49,3 +49,4 @@ watchdog==6.0.0
 triton-windows<=3.7
 
 requests
+fastapi
